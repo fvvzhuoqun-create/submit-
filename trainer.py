@@ -10,15 +10,10 @@ from sklearn.metrics import (
     roc_auc_score, average_precision_score, matthews_corrcoef, cohen_kappa_score
 )
 
-# 确保你的 utils.py 中有这个函数
 from utils import save_metrics_to_excel
 
 
-class ImprovedDrugSynergyTrainer:
-    """
-    高级药物协同性训练器 (重构对齐版)
-    包含：大模型差异化学习率、两阶段微调、基于 MCC 的动态阈值搜索、以及学习率衰减。
-    """
+class ModelTrainer:
 
     def __init__(
             self,
@@ -42,7 +37,7 @@ class ImprovedDrugSynergyTrainer:
         # 状态追踪
         self.best_val_thresh = 0.5
         self.early_stopping_patience = early_stopping_patience
-        self.best_val_mcc = -1.0
+        self.best_val_acc = -1.0
         self.patience_counter = 0
         self.best_epoch = 0
         self.freeze_qwen_epochs = freeze_qwen_epochs
@@ -179,7 +174,7 @@ class ImprovedDrugSynergyTrainer:
         }
 
     def evaluate(self, dataloader: Any, epoch: Any, phase: str = "Validation") -> Dict[str, float]:
-        """执行验证或测试循环，并搜寻最佳 MCC 阈值"""
+        """执行验证或测试循环，并搜寻最佳 ACC 阈值"""
         self.model.eval()
         total_loss = 0
         all_labels, all_probs = [], []
@@ -199,17 +194,17 @@ class ImprovedDrugSynergyTrainer:
         all_labels = np.array(all_labels)
         all_probs = np.array(all_probs)
 
-        # 动态阈值搜索：仅在验证集上执行，寻找使 MCC 最大的阈值
         if phase == "Validation":
             best_score, best_thresh = -1.0, 0.5
             for thresh in np.arange(0.1, 0.95, 0.01):
                 preds = (all_probs >= thresh).astype(int)
-                cur_score = matthews_corrcoef(all_labels, preds)
+                # 将 matthews_corrcoef 改为 accuracy_score
+                cur_score = accuracy_score(all_labels, preds)
                 if cur_score > best_score:
                     best_score, best_thresh = cur_score, thresh
             self.best_val_thresh = best_thresh
             chosen_thresh = best_thresh
-            print(f"[*] Validation Phase: Optimal threshold (max MCC) = {chosen_thresh:.2f}")
+            print(f"[*] Validation Phase: Optimal threshold (max ACC) = {chosen_thresh:.2f}")
         else:
             chosen_thresh = getattr(self, 'best_val_thresh', 0.5)
             print(f"[*] Test Phase: Applying validation threshold = {chosen_thresh:.2f}")
@@ -254,17 +249,17 @@ class ImprovedDrugSynergyTrainer:
 
             epoch_metrics_list.append(combined)
 
-            # Early Stopping 与权重保存 (以验证集 MCC 为准)
-            current_mcc = val_metrics['MCC']
-            if current_mcc > self.best_val_mcc:
-                self.best_val_mcc = current_mcc
+            # 【修改点 3】: Early Stopping 与权重保存 (以验证集 ACC 为准)
+            current_acc = val_metrics['ACC']
+            if current_acc > self.best_val_acc:
+                self.best_val_acc = current_acc
                 self.best_epoch = epoch
                 self.patience_counter = 0
                 torch.save(self.model.state_dict(), save_path)
-                print(f"[*] New best model saved at epoch {epoch} with Val MCC: {self.best_val_mcc:.4f}")
+                print(f"[*] New best model saved at epoch {epoch} with Val ACC: {self.best_val_acc:.4f}")
             else:
                 self.patience_counter += 1
-                print(f"[*] No MCC improvement. Patience: {self.patience_counter}/{self.early_stopping_patience}")
+                print(f"[*] No ACC improvement. Patience: {self.patience_counter}/{self.early_stopping_patience}")
                 if self.patience_counter >= self.early_stopping_patience:
                     print(f"[*] Early stopping triggered at epoch {epoch}")
                     break
@@ -277,7 +272,7 @@ class ImprovedDrugSynergyTrainer:
         print(f"Training finished! Loading best model (Epoch {self.best_epoch}) for final testing...")
         print("=" * 50)
 
-        # 测试前加载验证集 MCC 最佳的模型权重
+        # 测试前加载验证集 ACC 最佳的模型权重
         self.model.load_state_dict(torch.load(save_path))
 
         test_metrics = self.evaluate(self.test_loader, epoch="Final", phase="Test")

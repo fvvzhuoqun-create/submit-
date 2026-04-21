@@ -2,9 +2,14 @@ import PyInstaller.__main__
 
 if __name__ == '__main__':
     PyInstaller.__main__.run([
-        'gui_app.py',   # 你的主程序文件名
-        '--noconsole',  # 运行时不显示控制台窗口
-        '--onedir',    # 打包成一个文件夹
+        'gui_app.py',
+        '--noconsole',
+        '--onedir',
         '--hidden-import=tkinter',
-        '--hidden-import=tkinter.messagebox'
+        '--hidden-import=tkinter.messagebox',
+        '--hidden-import=pandas',
+        '--hidden-import=openpyxl',
+        '--hidden-import=huggingface_hub',
+        '--hidden-import=torch',
+        '--hidden-import=torch_geometric'
     ])
